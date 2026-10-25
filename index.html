@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SISEMP — Controle de Empenhos do Rancho | Cmdo Bda Inf Amv</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=2.6" />
+  <!-- SheetJS: leitura de planilhas .xlsx/.csv (importação do Tesouro Gerencial) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" defer></script>
+</head>
+<body>
+
+  <!-- TOP HEADER (mesmo padrão visual do SISAPROV) -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="header-emblem-left" title="Comando da Brigada de Infantaria Aeromóvel">
+        <img src="brasao_bda_amv.webp" alt="Cmdo da Brigada de Infantaria Aeromóvel" class="header-emblem-img bda-img" />
+      </div>
+
+      <div class="header-center-group">
+        <div class="brand-titles">
+          <h1>
+            SISEMP — CONTROLE DE EMPENHOS DO RANCHO
+            <span class="badge-portaria">NC • NE • ENTREGAS • LIQUIDAÇÃO</span>
+          </h1>
+          <p id="header-meta-text">Setor de Aprovisionamento • Cmdo Bda Inf Amv • Caçapava - SP</p>
+        </div>
+        <div class="header-actions">
+          <div class="global-search">
+            <span>🔎</span>
+            <input type="search" id="global-search" placeholder="Localizar empenho, empresa, CNPJ ou item…  (atalho: /)" autocomplete="off" />
+            <div class="global-search-results" id="global-search-results"></div>
+          </div>
+          <span class="role-badge" id="sync-badge" title="Status da sincronização com SAG Google Sheets">🟢 SAG Conectado</span>
+          <button class="btn btn-sm btn-gold" id="btn-sync-sag" onclick="sincronizarPlanilhaSAG(true)" title="Sincronizar em tempo real com a planilha do SAG no Google Sheets">🔄 Sincronizar SAG</button>
+          <a href="https://drive.google.com/drive/folders/1tZ_N7Y6gGFCSg-uo_RLPAJHvsBV5kDLM" target="_blank" rel="noopener" class="btn btn-sm" title="Abrir pasta de espelhos de NE no Google Drive" style="display:inline-flex;align-items:center;gap:0.3rem;">📁 Drive NEs</a>
+          <button class="btn btn-sm" onclick="forcarRecarregarDados()" title="Força a recarregar todos os dados originais da planilha">⚡ Reset</button>
+          <button class="btn btn-sm" id="btn-backup" title="Exportar ou importar backup completo">💾 Backup</button>
+          <button class="btn btn-sm" id="btn-export-csv" title="Exportar a lista de empenhos em CSV">⬇ CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="window.print()">🖨 Imprimir</button>
+        </div>
+      </div>
+
+      <div class="header-emblem-right" title="Serviço de Intendência — Folha de Acanto">
+        <img src="folha_acanto.svg" alt="Serviço de Intendência" class="header-emblem-img acanto-img" />
+      </div>
+    </div>
+  </header>
+
+  <!-- NAVIGATION -->
+  <nav class="nav-bar">
+    <div class="nav-inner">
+      <button class="nav-tab active" data-tab="tab-itens-empresa" onclick="navigateTab('tab-itens-empresa')">📦 Itens a Receber (Saldos por NE)</button>
+      <button class="nav-tab" data-tab="tab-painel" onclick="navigateTab('tab-painel')">📊 Painel Geral</button>
+      <button class="nav-tab" data-tab="tab-empenhos" onclick="navigateTab('tab-empenhos')">📑 Empenhos & Saldos <span class="nav-pill" id="pill-ne">0</span></button>
+      <button class="nav-tab" data-tab="tab-entregas" onclick="navigateTab('tab-entregas')">🚚 Entregas & Baixas <span class="nav-pill warn" id="pill-liquidar">0</span></button>
+      <button class="nav-tab" data-tab="tab-envios" onclick="navigateTab('tab-envios')">📨 Envios & Prazos <span class="nav-pill danger" id="pill-prazos">0</span></button>
+      <button class="nav-tab" data-tab="tab-novo" onclick="navigateTab('tab-novo')">➕ Nova NE / Importar</button>
+      <button class="nav-tab" data-tab="tab-nc" onclick="navigateTab('tab-nc')">💰 Notas de Crédito</button>
+      <button class="nav-tab" data-tab="tab-fornecedores" onclick="navigateTab('tab-fornecedores')">🏢 Fornecedores</button>
+      <button class="nav-tab" data-tab="tab-config" onclick="navigateTab('tab-config')">⚙️ Configurações</button>
+    </div>
+  </nav>
+
+  <main class="main-container">
+
+    <!-- ========== SALDO POR ITENS & EMPRESAS (ABA PRINCIPAL) ========== -->
+    <section id="tab-itens-empresa" class="tab-panel active">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📦 Quantidade de Cada Item a Receber por Empenho</div>
+            <div class="card-subtitle">Visualize o saldo pendente de cada gênero alimentício/material, filtre por item ou empresa e dê baixa instantânea pela Nota Fiscal (NF).</div>
+          </div>
+          <div class="toolbar no-print">
+            <div style="display:flex; gap:0.35rem; background:var(--bg-olive-soft); padding:0.25rem; border-radius:6px; flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-gold active" id="btn-modo-por-empresa" onclick="alternarModoItens('empresa')">🏢 Por Empresa & Empenhos</button>
+              <button type="button" class="btn btn-sm" id="btn-modo-quem" onclick="alternarModoItens('quem')">📞 Quem entrega? (ligar)</button>
+              <button type="button" class="btn btn-sm" id="btn-modo-todos-itens" onclick="alternarModoItens('todos')">📋 Todos os Itens</button>
+              <button type="button" class="btn btn-sm" id="btn-modo-pregao" onclick="alternarModoItens('pregao')">📑 Itens do Pregão (322)</button>
+            </div>
+            <input type="search" class="input-control" id="item-search-filtro" placeholder="Buscar item (ex: banana, arroz, carne, óleo)…" style="min-width:300px; font-weight:600;" oninput="filtrarItensBusca(this.value)" />
+            <select class="select-control" id="sel-empresa-filtro" style="font-weight:700; min-width:260px;" onchange="renderItensEmpresa(this.value)">
+              <option value="">Todas as Empresas...</option>
+            </select>
+            <label class="check-inline"><input type="checkbox" id="chk-so-com-saldo" checked onchange="aplicarFiltrosItens()" /> Só itens com saldo a receber</label>
+          </div>
+        </div>
+        <div class="card-body" id="conteudo-itens-empresa"></div>
+      </div>
+    </section>
+
+    <!-- ========== PAINEL GERAL ========== -->
+    <section id="tab-painel" class="tab-panel">
+      <div class="kpi-grid" id="kpi-grid"></div>
+      <div class="dashboard-two-col">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🚨 Pendências que exigem ação</div>
+              <div class="card-subtitle">Envios, reenvios (30 dias), processos administrativos (60 dias) e entregas aguardando liquidação</div>
+            </div>
+          </div>
+          <div class="card-body" id="painel-alertas"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">🏷️ A liquidar por Plano Interno (PI)</div>
+              <div class="card-subtitle">Valores atualizados com as baixas lançadas após o último relatório do Tesouro Gerencial</div>
+            </div>
+          </div>
+          <div class="card-body" id="painel-pi"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🏢 Maiores saldos a liquidar por fornecedor</div>
+            <div class="card-subtitle">Clique no nome para abrir os empenhos do fornecedor</div>
+          </div>
+        </div>
+        <div class="card-body" id="painel-fornecedores"></div>
+      </div>
+    </section>
+
+    <!-- ========== EMPENHOS ========== -->
+    <section id="tab-empenhos" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📑 Empenhos — Saldos</div>
+            <div class="card-subtitle"><strong>Saldo a pedir</strong> = itens ainda não solicitados à empresa • <strong>A liquidar</strong> = valor do Tesouro Gerencial menos as liquidações lançadas aqui</div>
+          </div>
+          <div class="toolbar no-print">
+            <input type="search" class="input-control" id="ne-filter-text" placeholder="Filtrar por NE, empresa, CNPJ, item, PI…" style="min-width:240px" />
+            <span class="badge b-gold font-bold" style="padding:0.45rem 0.8rem; font-size:0.85rem; display:inline-flex; align-items:center; gap:0.4rem;">
+              🍽️ Setor: Aprovisionamento (APROV)
+            </span>
+            <input type="hidden" id="ne-filter-resp" value="APROV" />
+            <select class="select-control" id="ne-filter-ano" onchange="renderTabelaEmpenhos()">
+              <option value="todos">Todos os Exercícios</option>
+              <option value="2026" selected>2026 (Atual)</option>
+              <option value="2025">2025 (Restos a Pagar)</option>
+            </select>
+            <select class="select-control" id="ne-filter-sit">
+              <option value="abertos">Com saldo (abertos)</option>
+              <option value="todos">Todos os status</option>
+              <option value="concluidos">Concluídos</option>
+              <option value="conferir">⚠️ Conferir divergências</option>
+            </select>
+            <select class="select-control" id="ne-filter-pi"><option value="">Todos os PI</option></select>
+            <select class="select-control" id="ne-filter-nd"><option value="">Todas as ND</option></select>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="table-scroll tall"><table class="data-table" id="ne-table"></table></div>
+          <div class="table-footer" id="ne-table-footer"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ENTREGAS & BAIXAS ========== -->
+    <section id="tab-entregas" class="tab-panel">
+      <div class="dashboard-two-col">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">📥 Registrar recebimento de material</div>
+              <div class="card-subtitle">Escolha a empresa e o empenho, informe as quantidades e a NF. Saldo atualizado na hora.</div>
+            </div>
+          </div>
+          <div class="card-body" id="receb-form"></div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">⚡ Baixa automática pela NF-e (XML)</div>
+              <div class="card-subtitle">Arraste o XML da nota fiscal: o sistema identifica a empresa, o empenho e os itens.</div>
+            </div>
+          </div>
+          <div class="card-body">
+            <label class="dropzone" id="nfe-dropzone">
+              <input type="file" id="nfe-file" accept=".xml" multiple hidden />
+              <div class="dropzone-icon">🧾</div>
+              <div><strong>Solte aqui o(s) XML(s) da NF-e</strong> ou clique para selecionar</div>
+              <div class="muted small">O XML vem no e-mail do fornecedor ou pode ser baixado no portal da NF-e</div>
+            </label>
+            <div id="nfe-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🧮 Fila de liquidação e pagamento</div>
+            <div class="card-subtitle">Marque as entregas e avance o status em lote. Ao <strong>liquidar</strong>, o valor sai de "A liquidar" e vai para "Liquidado a pagar"; ao <strong>pagar</strong>, vai para "Pago".</div>
+          </div>
+          <div class="toolbar no-print">
+            <select class="select-control" id="fila-filter">
+              <option value="Pedido">📝 Pedidos aguardando material</option>
+              <option value="Entregue" selected>📦 Entregues — à liquidar</option>
+              <option value="Liquidada">✅ Liquidadas</option>
+              <option value="Env. Pgto">📤 Enviadas p/ pagamento</option>
+              <option value="Pago">💵 Pagas</option>
+            </select>
+            <button class="btn btn-sm" data-bulk="Entregue">📦 Marcar entregue</button>
+            <button class="btn btn-primary btn-sm" data-bulk="Liquidada">✅ Liquidar selecionadas</button>
+            <button class="btn btn-sm" data-bulk="Env. Pgto">📤 Enviar p/ pagamento</button>
+            <button class="btn btn-gold btn-sm" data-bulk="Pago">💵 Marcar pagas</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="table-scroll tall"><table class="data-table" id="fila-table"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== ENVIOS & PRAZOS ========== -->
+    <section id="tab-envios" class="tab-panel">
+      <div class="kpi-grid" id="envio-kpis"></div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">📨 Controle de envio dos empenhos às empresas</div>
+            <div class="card-subtitle" id="envio-subtitle">Prazo de entrega: 30 dias a partir do envio • 30 dias sem entrega: reenviar e-mail • 60 dias: abrir processo administrativo</div>
+          </div>
+          <div class="toolbar no-print">
+            <select class="select-control" id="envio-filter">
+              <option value="acao">⚠ Exigem ação</option>
+              <option value="pendente">📭 Faltam enviar</option>
+              <option value="prazo">⏳ Enviados — no prazo</option>
+              <option value="reenviar">🔁 Reenviar (30+ dias)</option>
+              <option value="processo">⚖️ Processo administrativo (60+ dias)</option>
+              <option value="historico">🗂️ Enviados antes do sistema (sem data)</option>
+              <option value="concluido">✔ Entregues / isentos</option>
+              <option value="todos">Todos</option>
+            </select>
+            <button class="btn btn-primary btn-sm" id="btn-envio-lote">📨 Enviar todos os pendentes</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="table-scroll tall"><table class="data-table" id="envio-table"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== NOVA NE / IMPORTAR ========== -->
+    <section id="tab-novo" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">➕ Cadastrar nova Nota de Empenho</div>
+            <div class="card-subtitle">Ao salvar, a NE é enviada automaticamente para a empresa (se a nuvem estiver configurada) com prazo de entrega de 30 dias.</div>
+          </div>
+        </div>
+        <div class="card-body" id="nova-ne-form"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🔄 Atualizar com relatório do Tesouro Gerencial</div>
+            <div class="card-subtitle">Mesmo formato da planilha-base (UG, PI, NDSI, NE, DATA, FAV, NOME CREDOR, TIPO, A LIQUIDAR, LIQUIDADO A PAGAR, TOTAL A PAGAR, PAGO). Cole as linhas ou envie o arquivo .xlsx/.csv.</div>
+          </div>
+        </div>
+        <div class="card-body" id="import-tg"></div>
+      </div>
+    </section>
+
+    <!-- ========== NOTAS DE CRÉDITO ========== -->
+    <section id="tab-nc" class="tab-panel">
+      <div class="kpi-grid" id="nc-kpis"></div>
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">💰 Notas de Crédito recebidas e empenhos emitidos</div>
+            <div class="card-subtitle">Cada NE cadastrada consome o saldo da NC vinculada</div>
+          </div>
+          <div class="toolbar no-print">
+            <button class="btn btn-primary btn-sm" id="btn-nova-nc">➕ Nova Nota de Crédito</button>
+          </div>
+        </div>
+        <div class="card-body" id="nc-list"></div>
+      </div>
+    </section>
+
+    <!-- ========== FORNECEDORES ========== -->
+    <section id="tab-fornecedores" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">🏢 Fornecedores — e-mails e telefones</div>
+            <div class="card-subtitle">Busca automática pelo CNPJ na base pública da Receita Federal (BrasilAPI / Minha Receita / CNPJá). Você pode editar a qualquer momento.</div>
+          </div>
+          <div class="toolbar no-print">
+            <input type="search" class="input-control" id="forn-filter" placeholder="Filtrar…" />
+            <button class="btn btn-primary btn-sm" id="btn-buscar-todos">🌐 Buscar contatos que faltam</button>
+            <button class="btn btn-sm" id="btn-novo-forn">➕ Novo fornecedor</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="table-scroll tall"><table class="data-table" id="forn-table"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CONFIGURAÇÕES ========== -->
+    <section id="tab-config" class="tab-panel">
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <div class="card-title">⚙️ Configurações</div>
+            <div class="card-subtitle">Nuvem (Google Apps Script + Gmail), prazos, textos dos e-mails e dados</div>
+          </div>
+        </div>
+        <div class="card-body" id="config-form"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL GENÉRICO -->
+  <div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <div class="modal-title" id="modal-title"></div>
+        <button class="modal-close" id="modal-close" title="Fechar (Esc)">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer" id="modal-footer"></div>
+    </div>
+  </div>
+
+  <div class="toast-stack" id="toast-stack"></div>
+
+  <script src="data.js?v=2.6"></script>
+  <script src="app.js?v=2.6"></script>
+</body>
+</html>
