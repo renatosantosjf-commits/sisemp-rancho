@@ -4,7 +4,7 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'SISEMP_DATA_V5';
+  const STORAGE_KEY = 'SISEMP_DATA_V6';
 
   // Estado da aplicação
   let state = {
@@ -36,11 +36,10 @@
       try {
         const parsed = JSON.parse(saved);
         if (parsed && Array.isArray(parsed.empenhos) && parsed.empenhos.length > 0) {
-          // Auto-upgrade if cache was from older smaller dataset
-          if (parsed.empenhos.length < 500 && window.SISEMP_SEED && window.SISEMP_SEED.empenhos && window.SISEMP_SEED.empenhos.length > 500) {
+          // Garante filtro exclusivo de Aprovisionamento (APROV)
+          parsed.empenhos = (parsed.empenhos || []).filter(e => (e.responsavel || 'APROV').toUpperCase() === 'APROV');
+          if (parsed.empenhos.length === 0 && window.SISEMP_SEED && window.SISEMP_SEED.empenhos) {
             parsed.empenhos = JSON.parse(JSON.stringify(window.SISEMP_SEED.empenhos));
-            parsed.itensPregao = JSON.parse(JSON.stringify(window.SISEMP_SEED.itensPregao || []));
-            console.log('SISEMP: Atualizado para base completa SAG (' + parsed.empenhos.length + ' empenhos)');
           }
           state = parsed;
           if (!state.empresas || !state.empresas.length) {
@@ -129,7 +128,9 @@
         const pago = typeof c[12]?.v === 'number' ? c[12].v : (parseFloat(c[12]?.v || '0') || 0);
         const diasEmissao = parseInt(c[13]?.v || '0', 10) || 0;
         const status = (c[14]?.v || 'A RECEBER EMPENHO').toString().trim();
-        const respSecao = (c[15]?.v || 'APROV').toString().trim();
+        const respSecao = (c[15]?.v || '').toString().trim().toUpperCase();
+        // IMPORTANTE: Carrega EXCLUSIVAMENTE empenhos do Aprovisionamento (APROV / Rancho)
+        if (respSecao !== 'APROV') return;
         const justif = (c[19]?.v || '').toString().trim();
 
         let emp = state.empenhos.find(x => x.ne === ne);
